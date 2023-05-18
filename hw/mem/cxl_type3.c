@@ -1517,6 +1517,16 @@ static void ct3d_registers(void)
 
 type_init(ct3d_registers);
 
+static void accel_reset(DeviceState *dev)
+{
+    CXLAccelDev *acceld = CXL_ACCEL(dev);
+    uint32_t *reg_state = acceld->parent_obj.cxl_cstate.crb.cache_mem_registers;
+    uint32_t *write_msk = acceld->parent_obj.cxl_cstate.crb.cache_mem_regs_write_mask;
+
+    cxl_component_register_init_common(reg_state, write_msk, CXL3_TYPE2_DEVICE);
+    cxl_device_register_init_common(&acceld->parent_obj.cxl_dstate);
+}
+
 static void cxl_accel_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
@@ -1528,6 +1538,7 @@ static void cxl_accel_class_init(ObjectClass *oc, void *data)
     pc->revision = 1;
 
     dc->desc = "CXL Accelerator Device (Type 2)";
+    dc->reset = accel_reset;
 }
 
 static const TypeInfo cxl_accel_dev_info = {

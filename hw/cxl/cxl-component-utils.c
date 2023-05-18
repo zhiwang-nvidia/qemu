@@ -225,6 +225,7 @@ void cxl_component_register_init_common(uint32_t *reg_state, uint32_t *write_msk
         init_cap_reg(EXTSEC, 6, 1);
         init_cap_reg(SNOOP, 8, 1);
         /* FALL THROUGH */
+    case CXL3_TYPE2_DEVICE:
     case CXL2_UPSTREAM_PORT:
     case CXL2_TYPE3_DEVICE:
     case CXL2_LOGICAL_DEVICE:
@@ -241,6 +242,10 @@ void cxl_component_register_init_common(uint32_t *reg_state, uint32_t *write_msk
         break;
     default:
         abort();
+    }
+
+    if (type == CXL3_TYPE2_DEVICE) {
+        init_cap_reg(BI_DECODER, 12, 1);
     }
 
     ARRAY_FIELD_DP32(reg_state, CXL_CAPABILITY_HEADER, ARRAY_SIZE, caps);
