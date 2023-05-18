@@ -1516,3 +1516,31 @@ static void ct3d_registers(void)
 }
 
 type_init(ct3d_registers);
+
+static void cxl_accel_class_init(ObjectClass *oc, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(oc);
+    PCIDeviceClass *pc = PCI_DEVICE_CLASS(oc);
+
+    pc->class_id = PCI_CLASS_CXL_QEMU_ACCEL;
+    pc->vendor_id = PCI_VENDOR_ID_INTEL;
+    pc->device_id = 0xd94; /* LVF for now */
+    pc->revision = 1;
+
+    dc->desc = "CXL Accelerator Device (Type 2)";
+}
+
+static const TypeInfo cxl_accel_dev_info = {
+    .name = TYPE_CXL_ACCEL,
+    .parent = TYPE_CXL_TYPE3,
+    .class_size = sizeof(struct CXLAccelClass),
+    .class_init = cxl_accel_class_init,
+    .instance_size = sizeof(CXLAccelDev),
+};
+
+static void cxl_accel_dev_registers(void)
+{
+    type_register_static(&cxl_accel_dev_info);
+}
+
+type_init(cxl_accel_dev_registers);

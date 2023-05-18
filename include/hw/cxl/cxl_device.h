@@ -364,6 +364,22 @@ struct CXLType3Class {
     bool (*set_cacheline)(CXLType3Dev *ct3d, uint64_t dpa_offset, uint8_t *data);
 };
 
+/*
+ * Accel devices are a type3 device but with additional functionality.
+ */
+struct CXLAccelDev {
+    /* Private: Must be first */
+    CXLType3Dev parent_obj;
+};
+
+struct CXLAccelClass {
+    /* Private: Must be first */
+    CXLType3Class parent_class;
+};
+
+#define TYPE_CXL_ACCEL "cxl-accel"
+OBJECT_DECLARE_TYPE(CXLAccelDev, CXLAccelClass, CXL_ACCEL)
+
 MemTxResult cxl_type3_read(PCIDevice *d, hwaddr host_addr, uint64_t *data,
                            unsigned size, MemTxAttrs attrs);
 MemTxResult cxl_type3_write(PCIDevice *d, hwaddr host_addr, uint64_t data,
