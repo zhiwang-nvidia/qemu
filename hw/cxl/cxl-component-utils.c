@@ -252,6 +252,8 @@ void cxl_component_register_init_common(uint32_t *reg_state, uint32_t *write_msk
 
     if (type == CXL3_TYPE2_DEVICE) {
         init_cap_reg(BI_DECODER, 12, 1);
+        init_cap_reg(HDM, 5, 1);
+        hdm_init_common(reg_state, write_msk, type);
     }
 
     ARRAY_FIELD_DP32(reg_state, CXL_CAPABILITY_HEADER, ARRAY_SIZE, caps);
