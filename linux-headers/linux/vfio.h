@@ -214,6 +214,7 @@ struct vfio_device_info {
 #define VFIO_DEVICE_FLAGS_FSL_MC (1 << 6)	/* vfio-fsl-mc device */
 #define VFIO_DEVICE_FLAGS_CAPS	(1 << 7)	/* Info supports caps */
 #define VFIO_DEVICE_FLAGS_CDX	(1 << 8)	/* vfio-cdx device */
+#define VFIO_DEVICE_FLAGS_CXL	(1 << 9)	/* vfio-cdx device */
 	__u32	num_regions;	/* Max region index + 1 */
 	__u32	num_irqs;	/* Max IRQ index + 1 */
 	__u32   cap_offset;	/* Offset within info struct of first cap */
@@ -253,6 +254,16 @@ struct vfio_device_info_cap_pci_atomic_comp {
 #define VFIO_PCI_ATOMIC_COMP64	(1 << 1)
 #define VFIO_PCI_ATOMIC_COMP128	(1 << 2)
 	__u32 reserved;
+};
+
+#define VFIO_DEVICE_INFO_CAP_CXL               6
+struct vfio_device_info_cap_cxl {
+	struct vfio_info_cap_header header;
+	__u8 hdm_count;
+	__u8 hdm_regs_bar_index;
+	__u64 hdm_regs_size;
+	__u64 hdm_regs_offset;
+	__u64 dpa_size;
 };
 
 /**
@@ -370,6 +381,9 @@ struct vfio_region_info_cap_type {
 
 /* sub-types for VFIO_REGION_TYPE_GFX */
 #define VFIO_REGION_SUBTYPE_GFX_EDID            (1)
+
+/* sub-types for VFIO CXL region */
+#define VFIO_REGION_SUBTYPE_CXL                 (1)
 
 /**
  * struct vfio_region_gfx_edid - EDID region layout.

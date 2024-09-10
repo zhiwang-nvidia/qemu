@@ -118,6 +118,15 @@ typedef struct VFIOMSIXInfo {
 #define TYPE_VFIO_PCI "vfio-pci"
 OBJECT_DECLARE_SIMPLE_TYPE(VFIOPCIDevice, VFIO_PCI)
 
+typedef struct VFIOCXL {
+    uint8_t hdm_count;
+    uint8_t hdm_regs_bar_index;
+    uint64_t hdm_regs_size;
+    uint64_t hdm_regs_offset;
+    uint64_t dpa_size;
+    VFIORegion region;
+} VFIOCXL;
+
 struct VFIOPCIDevice {
     PCIDevice pdev;
     VFIODevice vbasedev;
@@ -177,6 +186,7 @@ struct VFIOPCIDevice {
     bool clear_parent_atomics_on_exit;
     VFIODisplay *dpy;
     Notifier irqchip_change_notifier;
+    VFIOCXL cxl;
 };
 
 /* Use uin32_t for vendor & device so PCI_ANY_ID expands and cannot match hw */

@@ -237,6 +237,9 @@ void vfio_region_write(void *opaque, hwaddr addr,
         break;
     }
 
+    if (region->notify_change)
+        region->notify_change(opaque, addr, data, size);
+
     if (pwrite(vbasedev->fd, &buf, size, region->fd_offset + addr) != size) {
         error_report("%s(%s:region%d+0x%"HWADDR_PRIx", 0x%"PRIx64
                      ",%d) failed: %m",

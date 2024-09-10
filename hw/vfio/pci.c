@@ -23,6 +23,7 @@
 #include <sys/ioctl.h>
 
 #include "hw/hw.h"
+#include "hw/cxl/cxl_component.h"
 #include "hw/pci/msi.h"
 #include "hw/pci/msix.h"
 #include "hw/pci/pci_bridge.h"
@@ -2743,6 +2744,74 @@ int vfio_populate_vga(VFIOPCIDevice *vdev, Error **errp)
     return 0;
 }
 
+static bool read_region(VFIORegion *region, uint32_t *val, uint64_t offset)
+{
+    VFIODevice *vbasedev = region->vbasedev;
+
+    if (pread(vbasedev->fd, val, 4, region->fd_offset + offset) != 4) {
+        error_report("%s(%s, 0x%lx, 0x%x, 0x%x) failed: %m",
+                     __func__,vbasedev->name, offset, *val, 4);
+        return false;
+    }
+    return true;
+}
+
+static void vfio_cxl_hdm_regs_changed(void *opaque, hwaddr addr,
+                                      uint64_t data, unsigned size)
+{
+    VFIORegion *region = opaque;
+    VFIODevice *vbasedev = region->vbasedev;
+    VFIOPCIDevice *vdev = container_of(vbasedev, VFIOPCIDevice, vbasedev);
+    VFIOCXL *cxl = &vdev->cxl;
+    MemoryRegion *address_space_mem = pci_get_bus(&vdev->pdev)->address_space_mem;
+    uint64_t offset, reg_offset, index;
+    uint32_t cur_val, write_val;
+
+    if (size != 4 || (addr & 0x3))
+        error_report("hdm_regs_changed: unsupported size or unaligned addr!\n");
+
+    offset = addr - cxl->hdm_regs_offset;
+    index = (offset - 0x10) / 0x20;
+    reg_offset = offset - 0x20 * index;
+
+    if (reg_offset != 0x20)
+        return;
+
+#define READ_REGION(val, offset) do { \
+    if (!read_region(region, val, offset)) \
+        return; \
+    } while(0)
+
+    write_val = (uint32_t)data;
+    READ_REGION(&cur_val, cxl->hdm_regs_offset + 0x20 * index + reg_offset);
+
+    /* locked + committed */
+    if (cur_val & ((1 << 8) | (1 << 10)))
+	    return;
+
+    if (!(cur_val & (1 << 10)) && (write_val & (1 << 9))) {
+	/* not commit -> commit */
+        uint32_t base_hi, base_lo;
+        uint64_t base;
+
+        READ_REGION(&base_lo, cxl->hdm_regs_offset +  0x20 * index + 0x10);
+        READ_REGION(&base_hi, cxl->hdm_regs_offset +  0x20 * index + 0x14);
+
+        base = ((uint64_t)base_hi << 32) | (uint64_t)(base_lo >> 28);
+
+        memory_region_transaction_begin();
+        memory_region_add_subregion_overlap(address_space_mem,
+                                            base, cxl->region.mem, 0);
+        memory_region_transaction_commit();
+    } else if (cur_val & (1 << 10) && !(write_val & (1 << 9))) {
+        /* commit -> not commit */
+        memory_region_transaction_begin();
+        memory_region_del_subregion(address_space_mem, cxl->region.mem);
+        memory_region_transaction_commit();
+    }
+#undef READ_REGION
+}
+
 static void vfio_populate_device(VFIOPCIDevice *vdev, Error **errp)
 {
     VFIODevice *vbasedev = &vdev->vbasedev;
@@ -2780,6 +2849,11 @@ static void vfio_populate_device(VFIOPCIDevice *vdev, Error **errp)
         }
 
         QLIST_INIT(&vdev->bars[i].quirks);
+
+        if (vbasedev->flags & VFIO_DEVICE_FLAGS_CXL &&
+            i == vdev->cxl.hdm_regs_bar_index) {
+            vdev->bars[i].region.notify_change = vfio_cxl_hdm_regs_changed;
+        }
     }
 
     ret = vfio_get_region_info(vbasedev,
@@ -2974,6 +3048,62 @@ static void vfio_unregister_req_notifier(VFIOPCIDevice *vdev)
     vdev->req_enabled = false;
 }
 
+static int vfio_cxl_setup(VFIOPCIDevice *vdev)
+{
+    VFIODevice *vbasedev = &vdev->vbasedev;
+    struct VFIOCXL *cxl = &vdev->cxl;
+    struct vfio_device_info_cap_cxl *cap;
+    g_autofree struct vfio_device_info *info = NULL;
+    struct vfio_info_cap_header *hdr;
+    struct vfio_region_info *region_info;
+    int ret;
+
+    if (!(vbasedev->flags & VFIO_DEVICE_FLAGS_CXL))
+        return 0;
+
+    info = vfio_get_device_info(vbasedev->fd);
+    if (!info) {
+        return -ENODEV;
+    }
+
+    hdr = vfio_get_device_info_cap(info, VFIO_DEVICE_INFO_CAP_CXL);
+    if (!hdr) {
+        return -ENODEV;
+    }
+
+    cap = (void *)hdr;
+
+    cxl->hdm_count = cap->hdm_count;
+    cxl->hdm_regs_bar_index = cap->hdm_regs_bar_index;
+    cxl->hdm_regs_size = cap->hdm_regs_size;
+    cxl->hdm_regs_offset = cap->hdm_regs_offset;
+    cxl->dpa_size = cap->dpa_size;
+
+    ret = vfio_get_dev_region_info(vbasedev,
+            VFIO_REGION_TYPE_PCI_VENDOR_TYPE | PCI_VENDOR_ID_CXL,
+            VFIO_REGION_SUBTYPE_CXL, &region_info);
+    if (ret) {
+        error_report("does not support requested CXL feature");
+        return ret;
+    }
+
+    ret = vfio_region_setup(OBJECT(vdev), vbasedev, &cxl->region,
+            region_info->index, "cxl region");
+    if (ret) {
+        error_report("fail to setup CXL region");
+        return ret;
+    }
+
+    g_free(region_info);
+
+    if (vfio_region_mmap(&cxl->region)) {
+        error_report("Failed to mmap %s cxl region",
+                     vdev->vbasedev.name);
+        return -EFAULT;
+    }
+    return 0;
+}
+
 static void vfio_realize(PCIDevice *pdev, Error **errp)
 {
     VFIOPCIDevice *vdev = VFIO_PCI(pdev);
@@ -3078,6 +3208,12 @@ static void vfio_realize(PCIDevice *pdev, Error **errp)
 
     ret = vfio_get_device(group, name, vbasedev, errp);
     g_free(name);
+    if (ret) {
+        vfio_put_group(group);
+        goto error;
+    }
+
+    ret = vfio_cxl_setup(vdev);
     if (ret) {
         vfio_put_group(group);
         goto error;
